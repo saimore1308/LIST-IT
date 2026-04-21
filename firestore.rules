@@ -1,0 +1,172 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function getUserData() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc != null ? userDoc.data : null;
+    }
+    
+    function hasRole(role) {
+      let data = getUserData();
+      return isAuthenticated() && data != null && data.role == role;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (hasRole('admin') || 
+        ('email' in request.auth.token && request.auth.token.email == "vinodjayrammore@gmail.com"));
+    }
+    
+    function isStoreOwner() {
+      return hasRole('store_owner');
+    }
+    
+    function isDeliveryAgent() {
+      return hasRole('delivery_agent');
+    }
+    
+    function isCustomer() {
+      return hasRole('customer');
+    }
+
+    // ===============================================================
+    // Users Collection
+    // ===============================================================
+    match /users/{userId} {
+      // Anyone can create their own user profile (initial signup)
+      // They can only set their role to customer, store_owner, or delivery_agent initially, not admin
+      allow create: if isOwner(userId) 
+                    && request.resource.data.keys().hasAll(['uid', 'role', 'name', 'email', 'createdAt'])
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role in ['customer', 'store_owner', 'delivery_agent'];
+                    
+      // Users can read their own profile, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can update their own profile, and can change their role to customer, store_owner, or delivery_agent
+      allow update: if (isOwner(userId) 
+                        && request.resource.data.uid == resource.data.uid
+                        && request.resource.data.role in ['customer', 'store_owner', 'delivery_agent']) 
+                    || isAdmin();
+    }
+
+    // ===============================================================
+    // Stores Collection
+    // ===============================================================
+    match /stores/{storeId} {
+      // Anyone can read stores
+      allow read: if true;
+      
+      // Store owners can create a store
+      allow create: if isStoreOwner() 
+                    && request.resource.data.ownerId == request.auth.uid
+                    && request.resource.data.keys().hasAll(['ownerId', 'name', 'category', 'address', 'lat', 'lng', 'isOpen', 'deliveryRadius', 'createdAt']);
+                    
+      // Store owners can update their own store
+      // Customers can update rating and ratingCount
+      allow update: if (isStoreOwner() && resource.data.ownerId == request.auth.uid && request.resource.data.ownerId == resource.data.ownerId)
+                    || isAdmin()
+                    || (isCustomer() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'ratingCount']));
+    }
+
+    // ===============================================================
+    // Ratings Collection
+    // ===============================================================
+    match /ratings/{ratingId} {
+      allow read: if true;
+      allow create: if isCustomer() 
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.keys().hasAll(['storeId', 'userId', 'rating', 'createdAt']);
+      allow update: if isCustomer() 
+                    && resource.data.userId == request.auth.uid 
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'review', 'updatedAt']);
+    }
+
+    // ===============================================================
+    // Products Collection
+    // ===============================================================
+    match /products/{productId} {
+      // Anyone can read products
+      allow read: if true;
+      
+      // Store owners can create products for their stores
+      allow create: if isStoreOwner()
+                    && get(/databases/$(database)/documents/stores/$(request.resource.data.storeId)).data.ownerId == request.auth.uid
+                    && request.resource.data.keys().hasAll(['storeId', 'name', 'price', 'stockCount', 'createdAt']);
+                    
+      // Store owners can update their own products
+      allow update: if isStoreOwner()
+                    && get(/databases/$(database)/documents/stores/$(resource.data.storeId)).data.ownerId == request.auth.uid
+                    && request.resource.data.storeId == resource.data.storeId;
+                    
+      // Store owners can delete their own products
+      allow delete: if isStoreOwner()
+                    && get(/databases/$(database)/documents/stores/$(resource.data.storeId)).data.ownerId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Orders Collection
+    // ===============================================================
+    match /orders/{orderId} {
+      // Customers can read their own orders
+      // Store owners can read orders for their store
+      // Delivery agents can read assigned orders or pending delivery orders
+      // Admins can read all orders
+      allow read: if isAuthenticated() && (
+                    ('customerId' in resource.data && resource.data.customerId == request.auth.uid) ||
+                    ('storeOwnerId' in resource.data && resource.data.storeOwnerId == request.auth.uid) ||
+                    ('agentId' in resource.data && resource.data.agentId == request.auth.uid) ||
+                    ('status' in resource.data && 'type' in resource.data && resource.data.status == 'ready' && resource.data.type == 'delivery') ||
+                    isAdmin()
+                  );
+                  
+      // Customers can create orders
+      allow create: if isCustomer()
+                    && request.resource.data.customerId == request.auth.uid
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.keys().hasAll(['customerId', 'storeId', 'storeOwnerId', 'items', 'status', 'type', 'totalAmount', 'createdAt', 'updatedAt']);
+                    
+      // Updates depend on role and current status
+      allow update: if isAuthenticated() && (
+                      // Customers can cancel orders before they are ready
+                      (resource.data.customerId == request.auth.uid 
+                       && resource.data.status in ['pending', 'accepted', 'preparing'] 
+                       && request.resource.data.status == 'cancelled'
+                       && request.resource.data.customerId == resource.data.customerId
+                       && request.resource.data.storeId == resource.data.storeId
+                       && request.resource.data.totalAmount == resource.data.totalAmount) ||
+                      
+                      // Store owners can update order status (accept, prepare, ready)
+                      (isStoreOwner() && resource.data.storeOwnerId == request.auth.uid 
+                       && request.resource.data.customerId == resource.data.customerId
+                       && request.resource.data.storeId == resource.data.storeId
+                       && request.resource.data.storeOwnerId == resource.data.storeOwnerId
+                       && request.resource.data.totalAmount == resource.data.totalAmount) ||
+                       
+                      // Delivery agents can accept ready orders and update delivery status
+                      (isDeliveryAgent() && (
+                        // Accepting an order
+                        (resource.data.status == 'ready' && request.resource.data.status == 'out_for_delivery' && request.resource.data.agentId == request.auth.uid) ||
+                        // Updating an accepted order
+                        (resource.data.agentId == request.auth.uid && request.resource.data.agentId == resource.data.agentId)
+                      )) ||
+                      
+                      isAdmin()
+                    );
+    }
+  }
+}

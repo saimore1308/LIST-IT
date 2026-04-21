@@ -1,0 +1,7 @@
+{
+  "name": "LIST IT",
+  "description": "A hyperlocal marketplace connecting customers, stores, and delivery agents.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

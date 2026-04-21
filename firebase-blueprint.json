@@ -1,0 +1,107 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the platform (Customer, Store Owner, Delivery Agent, or Admin)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "role": { "type": "string", "enum": ["customer", "store_owner", "delivery_agent", "admin"], "description": "User role" },
+        "name": { "type": "string", "description": "Full name" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role", "name", "email", "createdAt"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "A local store on the platform",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "description": "UID of the store owner" },
+        "name": { "type": "string", "description": "Store name" },
+        "description": { "type": "string", "description": "Store description" },
+        "category": { "type": "string", "description": "Store category (e.g., Grocery, Pharmacy, Food)" },
+        "address": { "type": "string", "description": "Physical address" },
+        "lat": { "type": "number", "description": "Latitude" },
+        "lng": { "type": "number", "description": "Longitude" },
+        "isOpen": { "type": "boolean", "description": "Is the store currently accepting orders?" },
+        "deliveryRadius": { "type": "number", "description": "Delivery radius in km" },
+        "rating": { "type": "number", "description": "Average rating" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "category", "address", "lat", "lng", "isOpen", "deliveryRadius", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "An item sold by a store",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string", "description": "ID of the store" },
+        "name": { "type": "string", "description": "Product name" },
+        "description": { "type": "string", "description": "Product description" },
+        "price": { "type": "number", "description": "Price in local currency" },
+        "stockCount": { "type": "number", "description": "Number of items remaining in stock" },
+        "category": { "type": "string", "description": "Product category" },
+        "imageUrl": { "type": "string", "description": "URL of the product image" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["storeId", "name", "price", "stockCount", "createdAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "An order placed by a customer",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string", "description": "UID of the customer" },
+        "storeId": { "type": "string", "description": "ID of the store" },
+        "agentId": { "type": "string", "description": "UID of the delivery agent (if applicable)" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" }
+            },
+            "required": ["productId", "name", "price", "quantity"]
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "accepted", "preparing", "ready", "out_for_delivery", "delivered", "cancelled"],
+          "description": "Current status of the order"
+        },
+        "type": { "type": "string", "enum": ["delivery", "takeaway"], "description": "Order type" },
+        "totalAmount": { "type": "number", "description": "Total order amount" },
+        "deliveryAddress": { "type": "string", "description": "Delivery address (if type is delivery)" },
+        "deliveryLat": { "type": "number" },
+        "deliveryLng": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["customerId", "storeId", "items", "status", "type", "totalAmount", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/stores/{storeId}": {
+      "schema": "Store",
+      "description": "Stores on the platform"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products available in stores"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Orders placed by customers"
+    }
+  }
+}
